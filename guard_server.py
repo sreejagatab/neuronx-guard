@@ -17,6 +17,7 @@ import logging
 import urllib.request
 import urllib.error
 from datetime import datetime
+from typing import Dict
 from pathlib import Path
 
 from fastapi import FastAPI, Request, HTTPException
@@ -30,7 +31,27 @@ try:
 except ImportError:
     pass
 
+class _SanitizeFilter(logging.Filter):
+    """Remove tokens and secrets from log messages."""
+    PATTERNS = [
+        (r'ghp_[a-zA-Z0-9]{36}', 'ghp_***'),
+        (r'ghu_[a-zA-Z0-9]{36}', 'ghu_***'),
+        (r'github_pat_[a-zA-Z0-9_]{80,}', 'github_pat_***'),
+        (r'sk-[a-zA-Z0-9]{20,}', 'sk-***'),
+        (r'Bearer [a-zA-Z0-9._-]{20,}', 'Bearer ***'),
+        (r'token [a-zA-Z0-9._-]{20,}', 'token ***'),
+    ]
+    def filter(self, record):
+        import re
+        msg = record.getMessage()
+        for pattern, replacement in self.PATTERNS:
+            msg = re.sub(pattern, replacement, msg)
+        record.msg = msg
+        record.args = ()
+        return True
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [GUARD] %(message)s")
+logging.getLogger().addFilter(_SanitizeFilter())
 logger = logging.getLogger("guard")
 
 # --- Config ---
@@ -88,11 +109,17 @@ def _generate_jwt():
         return None
 
 
+_install_token_cache: Dict[int, tuple] = {}  # installation_id -> (token, expires_at)
+
 def _get_installation_token(installation_id: int) -> str:
-    """Get an installation access token for a specific repo installation."""
+    """Get an installation access token with caching (tokens valid ~1h)."""
+    # Check cache first
+    cached = _install_token_cache.get(installation_id)
+    if cached and time.time() < cached[1]:
+        return cached[0]
+
     jwt = _generate_jwt()
     if not jwt:
-        # Fallback to personal token
         return os.getenv("GITHUB_TOKEN", "")
 
     try:
@@ -106,7 +133,11 @@ def _get_installation_token(installation_id: int) -> str:
         )
         resp = urllib.request.urlopen(req, timeout=10)
         data = json.loads(resp.read())
-        return data.get("token", "")
+        token = data.get("token", "")
+        if token:
+            # Cache for 50 minutes (tokens valid 1h)
+            _install_token_cache[installation_id] = (token, time.time() + 3000)
+        return token
     except Exception as e:
         logger.error(f"Installation token failed: {e}")
         return os.getenv("GITHUB_TOKEN", "")
@@ -520,8 +551,37 @@ async def webhook(request: Request):
         logger.info(f"Installation {action}: {owner} ({len(repos)} repos)")
         return {"status": "installation_recorded", "action": action, "repos": len(repos)}
 
+    # Handle repo add/remove from installation
+    if event == "installation_repositories":
+        action = payload.get("action")
+        inst_id = payload.get("installation", {}).get("id", 0)
+        added = [r.get("full_name", "") for r in payload.get("repositories_added", [])]
+        removed = [r.get("full_name", "") for r in payload.get("repositories_removed", [])]
+        for r in added:
+            stats["repos_installed"].add(r)
+        for r in removed:
+            stats["repos_installed"].discard(r)
+        # Update DB
+        try:
+            from guard_db import get_installation
+            import sqlite3, json as _json
+            from pathlib import Path
+            inst = get_installation(inst_id)
+            if inst:
+                current = _json.loads(inst.get("repos", "[]"))
+                current = [r for r in current if r not in removed] + added
+                conn = sqlite3.connect(str(Path(__file__).parent / "guard_data.db"))
+                conn.execute("UPDATE installations SET repos = ? WHERE installation_id = ?",
+                            (_json.dumps(current), inst_id))
+                conn.commit()
+                conn.close()
+        except Exception as e:
+            logger.debug(f"Repo update failed: {e}")
+        logger.info(f"Repos {action}: +{len(added)} -{len(removed)} (installation {inst_id})")
+        return {"status": "repos_updated", "added": len(added), "removed": len(removed)}
+
     # Handle PR events
-    if event == "pull_request" and payload.get("action") in ("opened", "synchronize"):
+    if event == "pull_request" and payload.get("action") in ("opened", "synchronize", "reopened"):
         pr = payload.get("pull_request", {})
         repo = payload.get("repository", {}).get("full_name", "")
         pr_number = pr.get("number")

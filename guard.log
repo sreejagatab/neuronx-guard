@@ -23,3 +23,23 @@ INFO:     127.0.0.1:49734 - "GET / HTTP/1.1" 200 OK
 INFO:     127.0.0.1:49734 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 Not Found
 INFO:     127.0.0.1:49734 - "GET /pricing HTTP/1.1" 200 OK
 INFO:     127.0.0.1:64389 - "GET /stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49680 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49680 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:49680 - "GET /pricing HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62461 - "GET /stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55575 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55575 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:55575 - "GET /pricing HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64603 - "GET /stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50075 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50075 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:50075 - "GET /pricing HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50075 - "GET /stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49265 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49265 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:49265 - "GET /pricing HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56528 - "GET /stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52839 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52839 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:52839 - "GET /pricing HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61438 - "GET /stats HTTP/1.1" 200 OK
