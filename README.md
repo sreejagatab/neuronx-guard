@@ -53,6 +53,31 @@ cp .env.example .env
 python guard_server.py
 ```
 
+## Test Results — Real PR Review
+
+NeuronX Guard was tested on a [real Pull Request](https://github.com/sreejagatab/neuronx-platform/pull/1) with intentional code issues.
+
+### Results: 6 files reviewed, 21 issues found
+
+| File | Issues | Key Findings |
+|------|--------|-------------|
+| test_guard_pr/example_code.py | 6 | Hardcoded password, API key, bare except, SQL injection, div by zero |
+| api/multi_source_collector.py | 3 | SQL injection in stats logging, broad exception handling |
+| engine/folder_engine.py | 3 | Insecure object reference, data loss risk |
+| meta_evolution/autonomous_code_model.py | 3 | Attribute error, documentation tracking |
+| meta_evolution/autonomous_evolution_loop.py | 3 | Data loss, inconsistent error handling |
+| self_modification/self_repair_engine.py | 3 | Information disclosure, broad exception |
+
+### All 4 review layers fired:
+- **AST Check**: Detected bare `except:` blocks
+- **Security Scan**: Found hardcoded password (`DATABASE_PASSWORD`) and API key (`sk-proj-*`)
+- **Pattern Search**: Found similar high-quality pattern (quality=1.00)
+- **LLM Review**: Identified SQL injection, division by zero, complexity issues
+
+[View the live review comment on GitHub](https://github.com/sreejagatab/neuronx-platform/pull/1#issuecomment-4170062869)
+
+---
+
 ## Powered by NeuronX
 
 NeuronX Guard is powered by the [NeuronX Platform](https://github.com/sreejagatab/neuronx-platform) — a self-evolving AI that learns from code 24/7.

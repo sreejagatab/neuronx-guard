@@ -338,7 +338,22 @@ async def landing():
     landing_path = Path(__file__).parent / "landing.html"
     if landing_path.exists():
         return FileResponse(landing_path)
-    return {"name": "NeuronX Guard", "status": "running", "install": "https://github.com/apps/neuronx-guard"}
+    return {"name": "NeuronX Guard", "status": "running"}
+
+
+@app.get("/favicon.ico")
+@app.get("/favicon.svg")
+async def favicon():
+    fav = Path(__file__).parent / "favicon.svg"
+    if fav.exists():
+        return FileResponse(fav, media_type="image/svg+xml")
+    return JSONResponse({}, status_code=204)
+
+
+@app.get("/test-results")
+async def test_results():
+    """Show real test results from PR #1 review."""
+    return FileResponse(Path(__file__).parent / "test-results.html")
 
 
 @app.get("/health")

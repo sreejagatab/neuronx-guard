@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NeuronX Guard — AI Code Review for GitHub</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0e1a;color:#e2e8f0}
@@ -52,7 +53,7 @@
     </div>
 
     <div style="text-align:center">
-        <a href="https://github.com/apps/neuronx-guard" class="install-btn">Install NeuronX Guard</a>
+        <a href="https://neuronx.jagatab.uk/guard" class="install-btn">Install NeuronX Guard</a>
         <p style="color:#64748b;font-size:0.8rem;margin-top:8px">Free for all repositories. No credit card.</p>
     </div>
 
@@ -107,7 +108,25 @@ severity_threshold: warning</code></pre>
     </div>
 
     <div style="text-align:center;margin-top:40px">
-        <a href="https://github.com/apps/neuronx-guard" class="install-btn">Install Now — Free</a>
+        <a href="https://neuronx.jagatab.uk/guard" class="install-btn">Install Now — Free</a>
+    </div>
+
+    <div class="card" style="margin-top:32px;border-color:#4ade80;">
+        <h2 style="color:#4ade80">Real Test Results</h2>
+        <p style="margin-bottom:12px">NeuronX Guard reviewed a real PR with intentional issues. Here's what it found:</p>
+        <div style="background:#0f172a;border-radius:8px;padding:16px;font-size:0.85rem">
+            <div style="color:#4ade80;font-weight:600;margin-bottom:8px">PR #1: 6 files reviewed, 21 issues found</div>
+            <div style="margin-bottom:4px;color:#e2e8f0"><span style="color:#ef4444">ERROR</span> test_guard_pr/example_code.py: Hardcoded password DATABASE_PASSWORD</div>
+            <div style="margin-bottom:4px;color:#e2e8f0"><span style="color:#ef4444">ERROR</span> test_guard_pr/example_code.py: Hardcoded API key sk-proj-*</div>
+            <div style="margin-bottom:4px;color:#e2e8f0"><span style="color:#f97316">WARN</span> test_guard_pr/example_code.py: Bare except without Exception</div>
+            <div style="margin-bottom:4px;color:#e2e8f0"><span style="color:#f97316">WARN</span> test_guard_pr/example_code.py: SQL injection in get_user()</div>
+            <div style="margin-bottom:4px;color:#e2e8f0"><span style="color:#f97316">WARN</span> test_guard_pr/example_code.py: Division by zero risk in divide()</div>
+            <div style="margin-bottom:4px;color:#e2e8f0"><span style="color:#f97316">WARN</span> api/multi_source_collector.py: SQL injection in stats logging</div>
+            <div style="margin-bottom:4px;color:#94a3b8">+ 15 more issues across 5 other files...</div>
+        </div>
+        <p style="margin-top:12px;font-size:0.8rem;color:#64748b">
+            <a href="https://github.com/sreejagatab/neuronx-platform/pull/1" target="_blank" style="color:#818cf8">View the real PR and review comment on GitHub</a>
+        </p>
     </div>
 
     <div style="text-align:center;margin-top:40px;color:#64748b;font-size:0.8rem">
