@@ -1,0 +1,456 @@
+"""
+NeuronX Guard — AI Code Review Server
+
+Standalone server that receives GitHub webhooks and reviews PRs
+using the NeuronX Platform API as the backend brain.
+
+Can run independently or alongside the NeuronX Platform.
+"""
+
+import os
+import sys
+import json
+import time
+import hmac
+import hashlib
+import logging
+import urllib.request
+import urllib.error
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
+import uvicorn
+
+# Load .env
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [GUARD] %(message)s")
+logger = logging.getLogger("guard")
+
+# --- Config ---
+GITHUB_APP_ID = os.getenv("GITHUB_APP_ID", "")
+GITHUB_PRIVATE_KEY_PATH = os.getenv("GITHUB_APP_PRIVATE_KEY_PATH", "neuronx-guard.pem")
+GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+NEURONX_API = os.getenv("NEURONX_API_URL", "https://neuronx.jagatab.uk")
+NEURONX_KEY = os.getenv("NEURONX_API_KEY", "")
+GUARD_PORT = int(os.getenv("GUARD_PORT", "9000"))
+MAX_DIFF_SIZE = int(os.getenv("MAX_DIFF_SIZE", "50000"))
+MAX_FILES = int(os.getenv("MAX_FILES_PER_REVIEW", "20"))
+MAX_COMMENTS = int(os.getenv("MAX_REVIEW_COMMENTS", "15"))
+
+# --- Stats ---
+stats = {
+    "reviews_completed": 0,
+    "issues_found": 0,
+    "repos_installed": set(),
+    "started_at": datetime.now().isoformat(),
+}
+
+# --- GitHub App JWT Auth ---
+_jwt_cache = {"token": None, "expires": 0}
+
+
+def _generate_jwt():
+    """Generate JWT for GitHub App authentication."""
+    if time.time() < _jwt_cache["expires"]:
+        return _jwt_cache["token"]
+
+    key_path = Path(GITHUB_PRIVATE_KEY_PATH)
+    if not key_path.exists() or not GITHUB_APP_ID:
+        return None
+
+    try:
+        import jwt as pyjwt
+        with open(key_path) as f:
+            private_key = f.read()
+
+        now = int(time.time())
+        payload = {
+            "iat": now - 60,
+            "exp": now + (10 * 60),  # 10 min
+            "iss": GITHUB_APP_ID,
+        }
+        token = pyjwt.encode(payload, private_key, algorithm="RS256")
+        _jwt_cache["token"] = token
+        _jwt_cache["expires"] = now + 500
+        return token
+    except ImportError:
+        logger.warning("PyJWT not installed. Install: pip install PyJWT cryptography")
+        return None
+    except Exception as e:
+        logger.error(f"JWT generation failed: {e}")
+        return None
+
+
+def _get_installation_token(installation_id: int) -> str:
+    """Get an installation access token for a specific repo installation."""
+    jwt = _generate_jwt()
+    if not jwt:
+        # Fallback to personal token
+        return os.getenv("GITHUB_TOKEN", "")
+
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {jwt}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+        return data.get("token", "")
+    except Exception as e:
+        logger.error(f"Installation token failed: {e}")
+        return os.getenv("GITHUB_TOKEN", "")
+
+
+# --- NeuronX API Client ---
+
+def neuronx_api(endpoint: str, data: dict = None, method: str = "GET") -> dict:
+    """Call the NeuronX Platform API."""
+    url = NEURONX_API + endpoint
+    headers = {"Content-Type": "application/json"}
+    if NEURONX_KEY:
+        headers["X-API-Key"] = NEURONX_KEY
+
+    try:
+        body = json.dumps(data).encode() if data else None
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        resp = urllib.request.urlopen(req, timeout=15)
+        return json.loads(resp.read())
+    except Exception as e:
+        logger.debug(f"NeuronX API error ({endpoint}): {e}")
+        return {"error": str(e)}
+
+
+# --- Code Review Engine ---
+
+def review_file(filename: str, diff: str, repo_config: dict) -> list:
+    """Review a single file's diff using NeuronX capabilities."""
+    issues = []
+
+    if len(diff) > MAX_DIFF_SIZE:
+        return [{"severity": "info", "message": "File too large for detailed review", "line": 0}]
+
+    # Skip ignored files
+    ignore = repo_config.get("ignore_files", [])
+    for pattern in ignore:
+        if pattern.endswith("*") and filename.startswith(pattern[:-1]):
+            return []
+        if filename.endswith(pattern.lstrip("*")):
+            return []
+
+    checks = repo_config.get("checks", {})
+
+    # 1. AST Check (local — fast)
+    if checks.get("bare_except", True):
+        if "except:" in diff and "except Exception" not in diff:
+            issues.append({
+                "severity": "warning",
+                "message": "Bare `except:` — use `except Exception:` to avoid catching SystemExit/KeyboardInterrupt",
+                "check": "bare_except",
+            })
+
+    # 2. Security Scan (local — fast)
+    if checks.get("security", True):
+        import re
+        secret_patterns = [
+            (r'password\s*=\s*["\'][^"\']{5,}', "Possible hardcoded password"),
+            (r'api[_-]?key\s*=\s*["\'][^"\']{10,}', "Possible hardcoded API key"),
+            (r'secret\s*=\s*["\'][^"\']{5,}', "Possible hardcoded secret"),
+            (r'sk-[a-zA-Z0-9]{20,}', "Possible OpenAI API key"),
+            (r'ghp_[a-zA-Z0-9]{36}', "Possible GitHub token"),
+        ]
+        for pattern, msg in secret_patterns:
+            if re.search(pattern, diff, re.IGNORECASE):
+                issues.append({"severity": "error", "message": msg, "check": "security"})
+
+    # 3. Complexity Check (via NeuronX — if enabled)
+    if checks.get("complexity", True) and filename.endswith(".py"):
+        added_lines = [l[1:] for l in diff.split("\n") if l.startswith("+") and not l.startswith("+++")]
+        code = "\n".join(added_lines)
+        if len(code) > 50:
+            try:
+                import ast
+                tree = ast.parse(code)
+                for node in ast.walk(tree):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        # Simple cyclomatic complexity
+                        complexity = sum(1 for n in ast.walk(node)
+                                        if isinstance(n, (ast.If, ast.For, ast.While, ast.ExceptHandler,
+                                                         ast.With, ast.BoolOp, ast.IfExp)))
+                        if complexity > 15:
+                            issues.append({
+                                "severity": "warning",
+                                "message": f"Function `{node.name}` has high complexity ({complexity}). Consider breaking it down.",
+                                "check": "complexity",
+                            })
+            except SyntaxError:
+                pass
+
+    # 4. Pattern Search (via NeuronX API)
+    if checks.get("patterns", True) and len(issues) < 3:
+        words = [w for w in filename.replace("/", " ").replace("_", " ").replace(".", " ").split() if len(w) > 3][:3]
+        if words:
+            result = neuronx_api(f"/api/patterns/search?q={'+'.join(words)}&limit=1")
+            patterns = result.get("patterns", [])
+            if patterns and patterns[0].get("quality", 0) > 0.9:
+                issues.append({
+                    "severity": "info",
+                    "message": f"Similar high-quality pattern exists: `{patterns[0].get('name', '?')}` (quality={patterns[0].get('quality', 0):.2f}). Consider comparing your implementation.",
+                    "check": "patterns",
+                })
+
+    # 5. LLM Deep Review (via NeuronX API — most expensive, do last)
+    if checks.get("llm_review", True) and len(issues) < 5:
+        result = neuronx_api("/api/llm/chat", {
+            "message": f"Review this code diff for {filename}. List ONLY actual bugs or security issues (max 3). Be concise. No style suggestions.\n\n```diff\n{diff[:3000]}\n```\n\nFormat: - [severity] description",
+        }, "POST")
+        response = result.get("response", "")
+        if response and result.get("model") != "template_fallback":
+            for line in response.strip().split("\n"):
+                line = line.strip()
+                if line.startswith("- ") or line.startswith("* "):
+                    msg = line[2:]
+                    severity = "warning"
+                    if "[error]" in msg.lower() or "[critical]" in msg.lower():
+                        severity = "error"
+                        msg = msg.replace("[error]", "").replace("[critical]", "").strip()
+                    elif "[info]" in msg.lower():
+                        severity = "info"
+                        msg = msg.replace("[info]", "").strip()
+                    if msg and len(msg) > 10:
+                        issues.append({"severity": severity, "message": msg, "check": "llm"})
+
+    return issues[:MAX_COMMENTS]
+
+
+def parse_diff(diff_text: str) -> list:
+    """Parse a unified diff into per-file diffs."""
+    files = []
+    current_file = ""
+    current_diff = ""
+
+    for line in diff_text.split("\n"):
+        if line.startswith("diff --git"):
+            if current_file and current_diff:
+                files.append((current_file, current_diff))
+            parts = line.split(" b/")
+            current_file = parts[-1] if len(parts) > 1 else ""
+            current_diff = ""
+        else:
+            current_diff += line + "\n"
+
+    if current_file and current_diff:
+        files.append((current_file, current_diff))
+
+    return files[:MAX_FILES]
+
+
+def get_repo_config(repo: str, token: str) -> dict:
+    """Read .neuronx-guard.yml from the repo."""
+    default = {
+        "enabled": True,
+        "checks": {
+            "security": True,
+            "complexity": True,
+            "bare_except": True,
+            "patterns": True,
+            "llm_review": True,
+        },
+        "ignore_files": ["*.md", "*.txt", "*.json", "*.yml", "*.yaml", "LICENSE", "*.lock"],
+        "severity_threshold": "warning",
+    }
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/contents/.neuronx-guard.yml",
+            headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3.raw"},
+        )
+        resp = urllib.request.urlopen(req, timeout=5)
+        import yaml
+        config = yaml.safe_load(resp.read())
+        if config:
+            default.update(config)
+    except Exception:
+        pass
+    return default
+
+
+def format_review_comment(repo: str, files_reviewed: int, all_issues: list) -> str:
+    """Format the review comment with markdown."""
+    if not all_issues:
+        return (
+            "## NeuronX Guard Review\n\n"
+            f"Reviewed {files_reviewed} files. No issues found.\n\n"
+            "*Powered by [NeuronX](https://neuronx.jagatab.uk) — 22K+ code patterns + AI*"
+        )
+
+    icons = {"error": "x", "warning": "warning", "info": "information_source"}
+    body = f"## NeuronX Guard Review\n\n"
+    body += f"Reviewed **{files_reviewed}** files, found **{len(all_issues)}** issues:\n\n"
+
+    for filename, issue in all_issues[:MAX_COMMENTS]:
+        icon = icons.get(issue["severity"], "bulb")
+        check = f" `{issue.get('check', '')}`" if issue.get("check") else ""
+        body += f"- :{icon}: **{filename}**{check}: {issue['message']}\n"
+
+    body += f"\n---\n*Reviewed by [NeuronX Guard](https://neuronx.jagatab.uk/guard) | "
+    body += f"{datetime.now().strftime('%Y-%m-%d %H:%M')} | "
+    body += f"[NeuronX Platform](https://neuronx.jagatab.uk)*"
+    return body
+
+
+def post_review(repo: str, pr_number: int, comment: str, token: str):
+    """Post a review comment on a PR."""
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+            method="POST",
+            data=json.dumps({"body": comment}).encode(),
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github.v3+json",
+                "Content-Type": "application/json",
+            },
+        )
+        urllib.request.urlopen(req, timeout=15)
+        logger.info(f"Posted review on {repo}#{pr_number}")
+    except Exception as e:
+        logger.error(f"Failed to post review: {e}")
+
+
+# --- FastAPI App ---
+
+app = FastAPI(title="NeuronX Guard", version="1.0.0")
+
+
+@app.get("/")
+async def landing():
+    """Serve the Guard landing page."""
+    landing_path = Path(__file__).parent / "landing.html"
+    if landing_path.exists():
+        return FileResponse(landing_path)
+    return {"name": "NeuronX Guard", "status": "running", "install": "https://github.com/apps/neuronx-guard"}
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "healthy",
+        "reviews": stats["reviews_completed"],
+        "issues_found": stats["issues_found"],
+        "repos": len(stats["repos_installed"]),
+        "uptime": stats["started_at"],
+    }
+
+
+@app.get("/stats")
+async def get_stats():
+    return {
+        "reviews_completed": stats["reviews_completed"],
+        "issues_found": stats["issues_found"],
+        "repos_installed": len(stats["repos_installed"]),
+        "started_at": stats["started_at"],
+        "neuronx_api": NEURONX_API,
+        "neuronx_connected": bool(neuronx_api("/health").get("status")),
+    }
+
+
+@app.post("/webhook")
+async def webhook(request: Request):
+    """Receive GitHub webhook events."""
+    body = await request.body()
+
+    # Verify signature
+    if GITHUB_WEBHOOK_SECRET:
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        expected = "sha256=" + hmac.new(
+            GITHUB_WEBHOOK_SECRET.encode(), body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise HTTPException(status_code=401, detail="Invalid signature")
+
+    event = request.headers.get("X-GitHub-Event", "")
+    payload = json.loads(body)
+
+    # Handle installation events
+    if event == "installation":
+        action = payload.get("action")
+        repos = payload.get("repositories", [])
+        for r in repos:
+            stats["repos_installed"].add(r.get("full_name", ""))
+        logger.info(f"Installation {action}: {len(repos)} repos")
+        return {"status": "installation_recorded", "action": action}
+
+    # Handle PR events
+    if event == "pull_request" and payload.get("action") in ("opened", "synchronize"):
+        pr = payload.get("pull_request", {})
+        repo = payload.get("repository", {}).get("full_name", "")
+        pr_number = pr.get("number")
+        installation_id = payload.get("installation", {}).get("id")
+
+        logger.info(f"Reviewing PR #{pr_number} on {repo}")
+        stats["repos_installed"].add(repo)
+
+        # Get auth token
+        if installation_id:
+            token = _get_installation_token(installation_id)
+        else:
+            token = os.getenv("GITHUB_TOKEN", "")
+
+        if not token:
+            return {"status": "error", "message": "No auth token available"}
+
+        # Fetch diff
+        try:
+            diff_url = pr.get("diff_url", "")
+            req = urllib.request.Request(diff_url, headers={"Authorization": f"token {token}"})
+            diff_text = urllib.request.urlopen(req, timeout=20).read().decode()
+        except Exception as e:
+            return {"status": "error", "message": f"Cannot fetch diff: {e}"}
+
+        # Get repo config
+        config = get_repo_config(repo, token)
+        if not config.get("enabled", True):
+            return {"status": "skipped", "reason": "disabled in .neuronx-guard.yml"}
+
+        # Review each file
+        files = parse_diff(diff_text)
+        all_issues = []
+        for filename, diff in files:
+            issues = review_file(filename, diff, config)
+            all_issues.extend([(filename, i) for i in issues])
+
+        # Post review
+        comment = format_review_comment(repo, len(files), all_issues)
+        post_review(repo, pr_number, comment, token)
+
+        stats["reviews_completed"] += 1
+        stats["issues_found"] += len(all_issues)
+
+        return {
+            "status": "reviewed",
+            "repo": repo,
+            "pr": pr_number,
+            "files_reviewed": len(files),
+            "issues_found": len(all_issues),
+        }
+
+    return {"status": "ignored", "event": event}
+
+
+# --- Main ---
+
+if __name__ == "__main__":
+    logger.info(f"NeuronX Guard starting on port {GUARD_PORT}")
+    logger.info(f"NeuronX API: {NEURONX_API}")
+    logger.info(f"Webhook: http://0.0.0.0:{GUARD_PORT}/webhook")
+    uvicorn.run(app, host="0.0.0.0", port=GUARD_PORT, log_level="info")
