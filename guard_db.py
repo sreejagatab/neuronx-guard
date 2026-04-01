@@ -58,7 +58,8 @@ def init_db():
             total_issues INTEGER DEFAULT 0,
             last_review TEXT,
             installed_at TEXT,
-            active INTEGER DEFAULT 1
+            active INTEGER DEFAULT 1,
+            stripe_customer_id TEXT DEFAULT ""
         );
 
         CREATE TABLE IF NOT EXISTS reviews (

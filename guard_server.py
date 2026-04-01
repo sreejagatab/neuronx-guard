@@ -54,6 +54,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [GUARD] %(message)s"
 logging.getLogger().addFilter(_SanitizeFilter())
 logger = logging.getLogger("guard")
 
+# Sentry error tracking (optional � set SENTRY_DSN in .env)
+try:
+    import sentry_sdk
+    dsn = os.getenv("SENTRY_DSN", "")
+    if dsn:
+        sentry_sdk.init(dsn=dsn, traces_sample_rate=0.1)
+        logger.info("Sentry error tracking enabled")
+except ImportError:
+    pass
+
 # --- Config ---
 GITHUB_APP_ID = os.getenv("GITHUB_APP_ID", "")
 GITHUB_PRIVATE_KEY_PATH = os.getenv("GITHUB_APP_PRIVATE_KEY_PATH", "neuronx-guard.pem")
@@ -213,6 +223,22 @@ def review_file(filename: str, diff: str, repo_config: dict, pr_context: str = "
             if re.search(pattern, diff, re.IGNORECASE):
                 issues.append({"severity": "error", "message": msg, "check": "security"})
 
+    # 2b. Custom Rules (from .neuronx-guard.yml)
+    custom_rules = repo_config.get("custom_rules", [])
+    if custom_rules:
+        import re
+        for rule in custom_rules[:10]:  # Max 10 custom rules
+            if isinstance(rule, dict) and "pattern" in rule:
+                try:
+                    if re.search(rule["pattern"], diff, re.IGNORECASE):
+                        issues.append({
+                            "severity": rule.get("severity", "warning"),
+                            "message": rule.get("message", f"Custom rule matched: {rule['pattern']}"),
+                            "check": "custom",
+                        })
+                except re.error:
+                    pass
+
     # 3. Complexity Check (via NeuronX — if enabled)
     if checks.get("complexity", True) and lang == "python":
         added_lines = [l[1:] for l in diff.split("\n") if l.startswith("+") and not l.startswith("+++")]
@@ -335,8 +361,17 @@ def get_repo_config(repo: str, token: str) -> dict:
         resp = urllib.request.urlopen(req, timeout=5)
         import yaml
         config = yaml.safe_load(resp.read())
-        if config:
-            default.update(config)
+        if config and isinstance(config, dict):
+            # Validate known keys
+            valid_keys = {"enabled", "checks", "ignore_files", "severity_threshold", "review_on", "custom_rules"}
+            for key in config:
+                if key in valid_keys:
+                    if key == "checks" and isinstance(config[key], dict):
+                        default["checks"].update(config[key])
+                    elif key == "ignore_files" and isinstance(config[key], list):
+                        default["ignore_files"] = config[key]
+                    else:
+                        default[key] = config[key]
     except Exception:
         pass
     return default
@@ -358,7 +393,19 @@ def format_review_comment(repo: str, files_reviewed: int, all_issues: list) -> s
     for filename, issue in all_issues[:MAX_COMMENTS]:
         icon = icons.get(issue["severity"], "bulb")
         check = f" `{issue.get('check', '')}`" if issue.get("check") else ""
-        body += f"- :{icon}: **{filename}**{check}: {issue['message']}\n"
+        msg = issue['message']
+        # Convert Fix: `old` -> `new` to GitHub suggested changes format
+        if "\n  Fix:" in msg and "->" in msg:
+            parts = msg.split("\n  Fix:", 1)
+            main_msg = parts[0]
+            fix_part = parts[1].strip()
+            if "->" in fix_part:
+                old, new = fix_part.split("->", 1)
+                new = new.strip().strip("`").strip()
+                body += f"- :{icon}: **{filename}**{check}: {main_msg}\n"
+                body += f"  ```suggestion\n  {new}\n  ```\n"
+                continue
+        body += f"- :{icon}: **{filename}**{check}: {msg}\n"
 
     body += f"\n---\n*Reviewed by [NeuronX Guard](https://neuronx.jagatab.uk/guard) | "
     body += f"{datetime.now().strftime('%Y-%m-%d %H:%M')} | "
@@ -625,59 +672,92 @@ async def webhook(request: Request):
 
         logger.info(f"Reviewing PR #{pr_number} on {repo} (tier={rate['tier']}, {rate['remaining']} remaining)")
         stats["repos_installed"].add(repo)
-        review_start = time.time()
 
-        # Get auth token
-        if installation_id:
-            token = _get_installation_token(installation_id)
-        else:
-            token = os.getenv("GITHUB_TOKEN", "")
+        # Queue the review in a background thread (webhook returns immediately)
+        import threading
+        def _do_review():
+            _process_pr_review(pr, repo, pr_number, pr_title, pr_body, installation_id, rate)
+        threading.Thread(target=_do_review, daemon=True).start()
+        return {"status": "queued", "repo": repo, "pr": pr_number, "tier": rate["tier"]}
 
-        if not token:
-            return {"status": "error", "message": "No auth token available"}
+    return {"status": "ignored", "event": event}
 
-        # Fetch diff
-        try:
-            diff_url = pr.get("diff_url", "")
-            req = urllib.request.Request(diff_url, headers={"Authorization": f"token {token}"})
-            diff_text = urllib.request.urlopen(req, timeout=20).read().decode()
-        except Exception as e:
-            return {"status": "error", "message": f"Cannot fetch diff: {e}"}
 
-        # Get repo config
-        config = get_repo_config(repo, token)
-        if not config.get("enabled", True):
-            return {"status": "skipped", "reason": "disabled in .neuronx-guard.yml"}
+def _process_pr_review(pr, repo, pr_number, pr_title, pr_body, installation_id, rate):
+    """Process PR review in background thread."""
+    review_start = time.time()
 
-        # Review each file
-        files = parse_diff(diff_text)
-        all_issues = []
-        for filename, diff in files:
-            pr_ctx = f"PR: {pr_title}" + (f"\n{pr_body}" if pr_body else "")
-            issues = review_file(filename, diff, config, pr_ctx)
-            all_issues.extend([(filename, i) for i in issues])
+    # Get auth token
+    if installation_id:
+        token = _get_installation_token(installation_id)
+    else:
+        token = os.getenv("GITHUB_TOKEN", "")
 
-        # Post review
-        comment = format_review_comment(repo, len(files), all_issues)
-        commit_sha = pr.get("head", {}).get("sha", "")
-        post_review(repo, pr_number, comment, token, all_issues, commit_sha)
+    if not token:
+        return {"status": "error", "message": "No auth token available"}
 
-        stats["reviews_completed"] += 1
-        stats["issues_found"] += len(all_issues)
+    # Fetch diff
+    try:
+        diff_url = pr.get("diff_url", "")
+        req = urllib.request.Request(diff_url, headers={"Authorization": f"token {token}"})
+        diff_text = urllib.request.urlopen(req, timeout=20).read().decode()
+    except Exception as e:
+        return {"status": "error", "message": f"Cannot fetch diff: {e}"}
 
-        # Record to database
-        review_time = int((time.time() - review_start) * 1000)
-        from guard_db import record_review, record_issue, increment_usage
-        checks_used = list(set(i.get("check", "unknown") for _, i in all_issues))
-        review_id = record_review(installation_id, repo, pr_number,
-                                  len(files), len(all_issues), checks_used, review_time, True)
-        for filename, issue in all_issues:
-            record_issue(review_id, repo, filename,
-                        issue.get("severity", "warning"), issue.get("check", "unknown"),
-                        issue.get("message", ""))
-        increment_usage(installation_id)
+    # Get repo config
+    config = get_repo_config(repo, token)
+    if not config.get("enabled", True):
+        return {"status": "skipped", "reason": "disabled in .neuronx-guard.yml"}
 
-        return {
+    # Review each file
+    files = parse_diff(diff_text)
+    all_issues = []
+    # Review files in parallel (ThreadPool for I/O-bound LLM calls)
+    pr_ctx = f"PR: {pr_title}" + (f"\n{pr_body}" if pr_body else "")
+    import concurrent.futures
+    def _review_one(args):
+        fn, d = args
+        return fn, review_file(fn, d, config, pr_ctx)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(files))) as pool:
+        results = pool.map(_review_one, files)
+    for filename, issues in results:
+        all_issues.extend([(filename, i) for i in issues])
+
+    # Dedup: check if we already reviewed this PR (avoid duplicate comments on synchronize)
+    already_reviewed = False
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+            headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"},
+        )
+        existing = json.loads(urllib.request.urlopen(req, timeout=10).read())
+        already_reviewed = any("NeuronX Guard" in (c.get("body") or "") for c in existing)
+    except Exception:
+        pass
+
+    # Post review (update existing or create new)
+    comment = format_review_comment(repo, len(files), all_issues)
+    commit_sha = pr.get("head", {}).get("sha", "")
+    if already_reviewed:
+        comment = comment.replace("## NeuronX Guard Review", "## NeuronX Guard Review (Updated)")
+    post_review(repo, pr_number, comment, token, all_issues, commit_sha)
+
+    stats["reviews_completed"] += 1
+    stats["issues_found"] += len(all_issues)
+
+    # Record to database
+    review_time = int((time.time() - review_start) * 1000)
+    from guard_db import record_review, record_issue, increment_usage
+    checks_used = list(set(i.get("check", "unknown") for _, i in all_issues))
+    review_id = record_review(installation_id, repo, pr_number,
+                              len(files), len(all_issues), checks_used, review_time, True)
+    for filename, issue in all_issues:
+        record_issue(review_id, repo, filename,
+                    issue.get("severity", "warning"), issue.get("check", "unknown"),
+                    issue.get("message", ""))
+    increment_usage(installation_id)
+
+    return {
             "status": "reviewed",
             "repo": repo,
             "pr": pr_number,
@@ -688,8 +768,6 @@ async def webhook(request: Request):
             "remaining_today": rate["remaining"] - 1,
         }
 
-    return {"status": "ignored", "event": event}
-
 
 # --- Main ---
 
@@ -698,3 +776,31 @@ if __name__ == "__main__":
     logger.info(f"NeuronX API: {NEURONX_API}")
     logger.info(f"Webhook: http://0.0.0.0:{GUARD_PORT}/webhook")
     uvicorn.run(app, host="0.0.0.0", port=GUARD_PORT, log_level="info")
+
+
+def _notify_slack(webhook_url: str, repo: str, pr_number: int, issues_count: int, comment_url: str = ""):
+    """Send review summary to Slack channel (Team tier feature)."""
+    if not webhook_url:
+        return
+    try:
+        color = "#4ade80" if issues_count == 0 else "#f97316" if issues_count < 5 else "#ef4444"
+        payload = {
+            "attachments": [{
+                "color": color,
+                "title": f"NeuronX Guard: {repo} PR #{pr_number}",
+                "text": f"Found {issues_count} issues" if issues_count > 0 else "No issues found",
+                "footer": "NeuronX Guard",
+                "ts": int(time.time()),
+            }]
+        }
+        if comment_url:
+            payload["attachments"][0]["title_link"] = comment_url
+        req = urllib.request.Request(
+            webhook_url, method="POST",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=5)
+        logger.info(f"Slack notification sent for {repo}#{pr_number}")
+    except Exception as e:
+        logger.debug(f"Slack notification failed: {e}")
