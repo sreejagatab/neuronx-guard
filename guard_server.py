@@ -375,16 +375,22 @@ def post_review(repo: str, pr_number: int, comment: str, token: str,
 
 # --- FastAPI App ---
 
-app = FastAPI(title="NeuronX Guard", version="1.0.0")
+app = FastAPI(title="NeuronX Guard", version="3.0.0")
+
+# Stripe billing routes
+try:
+    from stripe_billing import router as billing_router
+    app.include_router(billing_router)
+    logger.info("Stripe billing routes loaded")
+except Exception as e:
+    logger.debug(f"Stripe billing not available: {e}")
 
 
 @app.get("/")
 async def landing():
-    """Serve the Guard landing page."""
-    landing_path = Path(__file__).parent / "landing.html"
-    if landing_path.exists():
-        return FileResponse(landing_path)
-    return {"name": "NeuronX Guard", "status": "running"}
+    """Redirect to main landing page on NeuronX Platform."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse("https://neuronx.jagatab.uk/guard")
 
 
 @app.get("/favicon.ico")

@@ -84,4 +84,4 @@ NeuronX Guard is powered by the [NeuronX Platform](https://github.com/sreejagata
 
 ---
 
-Built by [Ganesh Jagatab](https://github.com/sreejagatab) | [neuronx.jagatab.uk](https://neuronx.jagatab.uk)
+Built by [SreeJagatab](https://jagatab.uk)(https://github.com/sreejagatab) | [neuronx.jagatab.uk](https://neuronx.jagatab.uk)

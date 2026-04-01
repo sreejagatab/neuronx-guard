@@ -11,3 +11,15 @@ INFO:     127.0.0.1:54590 - "GET /stats HTTP/1.1" 200 OK
 INFO:     127.0.0.1:63344 - "GET /pricing HTTP/1.1" 200 OK
 INFO:     127.0.0.1:51929 - "GET /dashboard-ui HTTP/1.1" 200 OK
 INFO:     127.0.0.1:51931 - "GET /favicon.svg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57461 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57461 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:57461 - "GET /pricing HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61803 - "GET /stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61803 - "GET /signup HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:61803 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:61803 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:61803 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:49734 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49734 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:49734 - "GET /pricing HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64389 - "GET /stats HTTP/1.1" 200 OK
