@@ -804,3 +804,92 @@ def _notify_slack(webhook_url: str, repo: str, pr_number: int, issues_count: int
         logger.info(f"Slack notification sent for {repo}#{pr_number}")
     except Exception as e:
         logger.debug(f"Slack notification failed: {e}")
+
+
+@app.post("/auto-fix/{owner}/{repo}/{pr_number}")
+async def auto_fix_pr(owner: str, repo: str, pr_number: int):
+    """Create a commit with auto-fixes for known issues (bare except, etc.)."""
+    token = os.getenv("GITHUB_TOKEN", "")
+    if not token:
+        return JSONResponse({"error": "No GitHub token configured"}, status_code=500)
+
+    full_repo = f"{owner}/{repo}"
+
+    # Get PR diff
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{full_repo}/pulls/{pr_number}",
+            headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"},
+        )
+        pr_data = json.loads(urllib.request.urlopen(req, timeout=10).read())
+        branch = pr_data.get("head", {}).get("ref", "")
+    except Exception as e:
+        return {"error": f"Cannot fetch PR: {e}"}
+
+    # Get files changed
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{full_repo}/pulls/{pr_number}/files",
+            headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"},
+        )
+        files = json.loads(urllib.request.urlopen(req, timeout=10).read())
+    except Exception as e:
+        return {"error": f"Cannot fetch files: {e}"}
+
+    fixes_applied = []
+    for file_info in files[:10]:
+        filename = file_info.get("filename", "")
+        if not filename.endswith(".py"):
+            continue
+
+        # Get file content
+        try:
+            req = urllib.request.Request(
+                f"https://api.github.com/repos/{full_repo}/contents/{filename}?ref={branch}",
+                headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3.raw"},
+            )
+            content = urllib.request.urlopen(req, timeout=10).read().decode()
+        except Exception:
+            continue
+
+        original = content
+        # Apply safe auto-fixes
+        if "except:" in content and "except Exception" not in content:
+            content = content.replace("except:", "except Exception:")
+            fixes_applied.append(f"{filename}: bare except -> except Exception")
+
+        # Only commit if changes were made
+        if content != original:
+            import base64
+            # Get file SHA for update
+            try:
+                req = urllib.request.Request(
+                    f"https://api.github.com/repos/{full_repo}/contents/{filename}?ref={branch}",
+                    headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"},
+                )
+                file_data = json.loads(urllib.request.urlopen(req, timeout=10).read())
+                sha = file_data.get("sha", "")
+
+                # Update file
+                update_req = urllib.request.Request(
+                    f"https://api.github.com/repos/{full_repo}/contents/{filename}",
+                    method="PUT",
+                    data=json.dumps({
+                        "message": f"fix: auto-fix by NeuronX Guard ({len(fixes_applied)} fixes)",
+                        "content": base64.b64encode(content.encode()).decode(),
+                        "sha": sha,
+                        "branch": branch,
+                    }).encode(),
+                    headers={"Authorization": f"token {token}", "Content-Type": "application/json"},
+                )
+                urllib.request.urlopen(update_req, timeout=15)
+            except Exception as e:
+                logger.debug(f"Auto-fix commit failed for {filename}: {e}")
+
+    return {
+        "status": "completed" if fixes_applied else "no_fixes",
+        "fixes": fixes_applied,
+        "repo": full_repo,
+        "pr": pr_number,
+        "branch": branch,
+    }
