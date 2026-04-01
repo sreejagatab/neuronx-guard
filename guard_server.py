@@ -209,10 +209,18 @@ def review_file(filename: str, diff: str, repo_config: dict) -> list:
                     "check": "patterns",
                 })
 
-    # 5. LLM Deep Review (via NeuronX API — most expensive, do last)
+    # 5. LLM Deep Review + Fix Suggestions (via NeuronX API)
     if checks.get("llm_review", True) and len(issues) < 5:
         result = neuronx_api("/api/llm/chat", {
-            "message": f"Review this code diff for {filename}. List ONLY actual bugs or security issues (max 3). Be concise. No style suggestions.\n\n```diff\n{diff[:3000]}\n```\n\nFormat: - [severity] description",
+            "message": (
+                f"Review this code diff for {filename}. For each issue:\n"
+                f"1. State the issue with severity [High/Medium/Low]\n"
+                f"2. Suggest a fix with before/after code\n"
+                f"Max 3 issues. Format:\n"
+                f"- [severity] Issue description\n"
+                f"  Fix: `old code` -> `new code`\n\n"
+                f"```diff\n{diff[:3000]}\n```"
+            ),
         }, "POST")
         response = result.get("response", "")
         if response and result.get("model") != "template_fallback":
@@ -221,14 +229,19 @@ def review_file(filename: str, diff: str, repo_config: dict) -> list:
                 if line.startswith("- ") or line.startswith("* "):
                     msg = line[2:]
                     severity = "warning"
-                    if "[error]" in msg.lower() or "[critical]" in msg.lower():
+                    if "[high]" in msg.lower() or "[error]" in msg.lower() or "[critical]" in msg.lower():
                         severity = "error"
-                        msg = msg.replace("[error]", "").replace("[critical]", "").strip()
-                    elif "[info]" in msg.lower():
+                    elif "[info]" in msg.lower() or "[low]" in msg.lower():
                         severity = "info"
-                        msg = msg.replace("[info]", "").strip()
+                    # Clean severity tags
+                    for tag in ["[high]", "[medium]", "[low]", "[error]", "[critical]", "[info]", "[warning]"]:
+                        msg = msg.replace(tag, "").replace(tag.upper(), "").replace(tag.title(), "")
+                    msg = msg.strip()
                     if msg and len(msg) > 10:
                         issues.append({"severity": severity, "message": msg, "check": "llm"})
+                elif line.strip().startswith("Fix:") and issues:
+                    # Append fix suggestion to the last issue
+                    issues[-1]["message"] += "\n  " + line.strip()
 
     return issues[:MAX_COMMENTS]
 
@@ -308,18 +321,51 @@ def format_review_comment(repo: str, files_reviewed: int, all_issues: list) -> s
     return body
 
 
-def post_review(repo: str, pr_number: int, comment: str, token: str):
-    """Post a review comment on a PR."""
+def post_review(repo: str, pr_number: int, comment: str, token: str,
+                all_issues: list = None, commit_sha: str = ""):
+    """Post review: summary comment + inline line comments on specific files."""
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
+    }
+
+    # 1. Post inline review with file-level comments (if we have issues + commit SHA)
+    if all_issues and commit_sha:
+        try:
+            review_comments = []
+            for filename, issue in all_issues[:10]:  # Max 10 inline comments
+                review_comments.append({
+                    "path": filename,
+                    "body": f"**{issue.get('severity', 'warning').upper()}** ({issue.get('check', 'guard')}): {issue['message']}",
+                    "side": "RIGHT",
+                    "line": 1,  # First line of file (GitHub requires a line)
+                })
+            if review_comments:
+                review_body = {
+                    "body": comment,
+                    "event": "COMMENT",
+                    "comments": review_comments,
+                }
+                req = urllib.request.Request(
+                    f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews",
+                    method="POST",
+                    data=json.dumps(review_body).encode(),
+                    headers=headers,
+                )
+                urllib.request.urlopen(req, timeout=15)
+                logger.info(f"Posted inline review on {repo}#{pr_number} ({len(review_comments)} comments)")
+                return
+        except Exception as e:
+            logger.debug(f"Inline review failed ({e}), falling back to issue comment")
+
+    # 2. Fallback: post as issue comment (always works)
     try:
         req = urllib.request.Request(
             f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
             method="POST",
             data=json.dumps({"body": comment}).encode(),
-            headers={
-                "Authorization": f"token {token}",
-                "Accept": "application/vnd.github.v3+json",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
         )
         urllib.request.urlopen(req, timeout=15)
         logger.info(f"Posted review on {repo}#{pr_number}")
@@ -353,7 +399,16 @@ async def favicon():
 @app.get("/test-results")
 async def test_results():
     """Show real test results from PR #1 review."""
-    return FileResponse(Path(__file__).parent / "test-results.html")
+    p = Path(__file__).parent / "test-results.html"
+    if p.exists():
+        return FileResponse(p)
+    return JSONResponse({"message": "See /stats for review data"})
+
+
+@app.get("/dashboard-ui")
+async def dashboard_ui():
+    """Interactive dashboard page."""
+    return FileResponse(Path(__file__).parent / "dashboard.html")
 
 
 @app.get("/health")
@@ -514,7 +569,8 @@ async def webhook(request: Request):
 
         # Post review
         comment = format_review_comment(repo, len(files), all_issues)
-        post_review(repo, pr_number, comment, token)
+        commit_sha = pr.get("head", {}).get("sha", "")
+        post_review(repo, pr_number, comment, token, all_issues, commit_sha)
 
         stats["reviews_completed"] += 1
         stats["issues_found"] += len(all_issues)
