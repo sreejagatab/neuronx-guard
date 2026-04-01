@@ -270,3 +270,23 @@ def get_badge_data(repo: str) -> Dict:
         avg = issues / reviews
         color = "green" if avg < 2 else "yellow" if avg < 5 else "orange" if avg < 10 else "red"
         return {"label": "NeuronX Guard", "message": f"{issues} issues", "color": color}
+
+
+# --- DB Backup ---
+
+def backup_db():
+    """Create a daily backup of guard_data.db."""
+    import shutil
+    from pathlib import Path
+    backup_dir = Path(__file__).parent / "backups"
+    backup_dir.mkdir(exist_ok=True)
+    src = Path(__file__).parent / "guard_data.db"
+    if src.exists():
+        dest = backup_dir / f"guard_data_{datetime.now().strftime('%Y%m%d')}.db"
+        shutil.copy2(str(src), str(dest))
+        # Keep only last 7 backups
+        backups = sorted(backup_dir.glob("guard_data_*.db"), reverse=True)
+        for old in backups[7:]:
+            old.unlink()
+        return {"status": "backed_up", "file": str(dest), "kept": min(len(backups), 7)}
+    return {"status": "no_db"}

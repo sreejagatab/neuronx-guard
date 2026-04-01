@@ -8,3 +8,4 @@ guard.log
 guard_data.db
 *.diff
 comment.json
+backups/

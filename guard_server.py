@@ -164,9 +164,18 @@ def neuronx_api(endpoint: str, data: dict = None, method: str = "GET") -> dict:
 
 # --- Code Review Engine ---
 
+LANGUAGE_MAP = {
+    '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
+    '.jsx': 'jsx', '.tsx': 'tsx', '.go': 'go', '.rs': 'rust',
+    '.java': 'java', '.rb': 'ruby', '.php': 'php', '.c': 'c',
+    '.cpp': 'cpp', '.cs': 'csharp', '.swift': 'swift', '.kt': 'kotlin',
+}
+
+
 def review_file(filename: str, diff: str, repo_config: dict, pr_context: str = "") -> list:
     """Review a single file's diff using NeuronX capabilities."""
     issues = []
+    lang = LANGUAGE_MAP.get(os.path.splitext(filename)[1].lower(), 'unknown')
 
     if len(diff) > MAX_DIFF_SIZE:
         return [{"severity": "info", "message": "File too large for detailed review", "line": 0}]
@@ -205,7 +214,7 @@ def review_file(filename: str, diff: str, repo_config: dict, pr_context: str = "
                 issues.append({"severity": "error", "message": msg, "check": "security"})
 
     # 3. Complexity Check (via NeuronX — if enabled)
-    if checks.get("complexity", True) and filename.endswith(".py"):
+    if checks.get("complexity", True) and lang == "python":
         added_lines = [l[1:] for l in diff.split("\n") if l.startswith("+") and not l.startswith("+++")]
         code = "\n".join(added_lines)
         if len(code) > 50:
@@ -505,6 +514,13 @@ async def rate_limit_check(installation_id: int):
     """Check rate limit for an installation."""
     from guard_db import check_rate_limit
     return check_rate_limit(installation_id)
+
+
+@app.post("/backup")
+async def trigger_backup():
+    """Create a DB backup."""
+    from guard_db import backup_db
+    return backup_db()
 
 
 @app.get("/stats")
