@@ -358,20 +358,65 @@ async def test_results():
 
 @app.get("/health")
 async def health():
+    from guard_db import get_stats as db_stats
+    db = db_stats()
     return {
         "status": "healthy",
-        "reviews": stats["reviews_completed"],
-        "issues_found": stats["issues_found"],
+        "reviews": stats["reviews_completed"] + db.get("total_reviews", 0),
+        "issues_found": stats["issues_found"] + db.get("total_issues", 0),
         "repos": len(stats["repos_installed"]),
+        "installations": db.get("installations", 0),
         "uptime": stats["started_at"],
     }
 
 
-@app.get("/stats")
-async def get_stats():
+@app.get("/pricing")
+async def pricing():
+    """Show pricing tiers."""
+    from guard_db import TIERS
+    return {"tiers": TIERS}
+
+
+@app.get("/badge/{owner}/{repo}.svg")
+async def badge(owner: str, repo: str):
+    """Generate shield.io compatible badge for repo."""
+    from guard_db import get_badge_data
+    data = get_badge_data(f"{owner}/{repo}")
+    # Redirect to shields.io
+    import urllib.parse
+    url = f"https://img.shields.io/badge/{urllib.parse.quote(data['label'])}-{urllib.parse.quote(data['message'])}-{data['color']}"
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url)
+
+
+@app.get("/dashboard/{owner}/{repo}")
+async def repo_dashboard(owner: str, repo: str):
+    """Review history for a repo."""
+    from guard_db import get_repo_reviews, get_badge_data
+    reviews = get_repo_reviews(f"{owner}/{repo}", limit=50)
+    badge = get_badge_data(f"{owner}/{repo}")
     return {
-        "reviews_completed": stats["reviews_completed"],
-        "issues_found": stats["issues_found"],
+        "repo": f"{owner}/{repo}",
+        "badge": badge,
+        "reviews": reviews,
+        "total": len(reviews),
+    }
+
+
+@app.get("/rate-limit/{installation_id}")
+async def rate_limit_check(installation_id: int):
+    """Check rate limit for an installation."""
+    from guard_db import check_rate_limit
+    return check_rate_limit(installation_id)
+
+
+@app.get("/stats")
+async def get_stats_endpoint():
+    from guard_db import get_stats as db_stats
+    db = db_stats()
+    return {
+        "reviews_completed": stats["reviews_completed"] + db.get("total_reviews", 0),
+        "issues_found": stats["issues_found"] + db.get("total_issues", 0),
         "repos_installed": len(stats["repos_installed"]),
         "started_at": stats["started_at"],
         "neuronx_api": NEURONX_API,
@@ -400,20 +445,43 @@ async def webhook(request: Request):
     if event == "installation":
         action = payload.get("action")
         repos = payload.get("repositories", [])
-        for r in repos:
-            stats["repos_installed"].add(r.get("full_name", ""))
-        logger.info(f"Installation {action}: {len(repos)} repos")
-        return {"status": "installation_recorded", "action": action}
+        owner = payload.get("installation", {}).get("account", {}).get("login", "")
+        inst_id = payload.get("installation", {}).get("id", 0)
+        repo_names = [r.get("full_name", "") for r in repos]
+        for r in repo_names:
+            stats["repos_installed"].add(r)
+
+        from guard_db import record_installation, remove_installation
+        if action in ("created", "added"):
+            record_installation(inst_id, owner, repo_names)
+        elif action == "deleted":
+            remove_installation(inst_id)
+        logger.info(f"Installation {action}: {owner} ({len(repos)} repos)")
+        return {"status": "installation_recorded", "action": action, "repos": len(repos)}
 
     # Handle PR events
     if event == "pull_request" and payload.get("action") in ("opened", "synchronize"):
         pr = payload.get("pull_request", {})
         repo = payload.get("repository", {}).get("full_name", "")
         pr_number = pr.get("number")
-        installation_id = payload.get("installation", {}).get("id")
+        installation_id = payload.get("installation", {}).get("id", 0)
 
-        logger.info(f"Reviewing PR #{pr_number} on {repo}")
+        # Rate limit check
+        from guard_db import check_rate_limit, increment_usage
+        rate = check_rate_limit(installation_id)
+        if not rate["allowed"]:
+            logger.warning(f"Rate limited: {repo} ({rate['used']}/{rate['limit']} today, tier={rate['tier']})")
+            return {
+                "status": "rate_limited",
+                "tier": rate["tier"],
+                "used": rate["used"],
+                "limit": rate["limit"],
+                "upgrade_url": "https://neuronx.jagatab.uk/guard#pricing",
+            }
+
+        logger.info(f"Reviewing PR #{pr_number} on {repo} (tier={rate['tier']}, {rate['remaining']} remaining)")
         stats["repos_installed"].add(repo)
+        review_start = time.time()
 
         # Get auth token
         if installation_id:
@@ -451,12 +519,27 @@ async def webhook(request: Request):
         stats["reviews_completed"] += 1
         stats["issues_found"] += len(all_issues)
 
+        # Record to database
+        review_time = int((time.time() - review_start) * 1000)
+        from guard_db import record_review, record_issue, increment_usage
+        checks_used = list(set(i.get("check", "unknown") for _, i in all_issues))
+        review_id = record_review(installation_id, repo, pr_number,
+                                  len(files), len(all_issues), checks_used, review_time, True)
+        for filename, issue in all_issues:
+            record_issue(review_id, repo, filename,
+                        issue.get("severity", "warning"), issue.get("check", "unknown"),
+                        issue.get("message", ""))
+        increment_usage(installation_id)
+
         return {
             "status": "reviewed",
             "repo": repo,
             "pr": pr_number,
             "files_reviewed": len(files),
             "issues_found": len(all_issues),
+            "review_time_ms": review_time,
+            "tier": rate["tier"],
+            "remaining_today": rate["remaining"] - 1,
         }
 
     return {"status": "ignored", "event": event}

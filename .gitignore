@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+guard.log
+guard_data.db
+*.diff
+comment.json
