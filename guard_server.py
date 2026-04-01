@@ -164,7 +164,7 @@ def neuronx_api(endpoint: str, data: dict = None, method: str = "GET") -> dict:
 
 # --- Code Review Engine ---
 
-def review_file(filename: str, diff: str, repo_config: dict) -> list:
+def review_file(filename: str, diff: str, repo_config: dict, pr_context: str = "") -> list:
     """Review a single file's diff using NeuronX capabilities."""
     issues = []
 
@@ -244,13 +244,18 @@ def review_file(filename: str, diff: str, repo_config: dict) -> list:
     if checks.get("llm_review", True) and len(issues) < 5:
         result = neuronx_api("/api/llm/chat", {
             "message": (
-                f"Review this code diff for {filename}. For each issue:\n"
-                f"1. State the issue with severity [High/Medium/Low]\n"
-                f"2. Suggest a fix with before/after code\n"
-                f"Max 3 issues. Format:\n"
-                f"- [severity] Issue description\n"
-                f"  Fix: `old code` -> `new code`\n\n"
-                f"```diff\n{diff[:3000]}\n```"
+                f"You are a code reviewer. Review this diff for {filename}.\n"
+                f"Find ONLY real bugs, security issues, or logic errors. Max 3.\n\n"
+                f"Example good review:\n"
+                f"- [High] SQL injection: user input in f-string query\n"
+                f"  Fix: `f\"SELECT * FROM t WHERE id={{id}}\"` -> `cursor.execute(\"SELECT * FROM t WHERE id=?\", (id,))`\n"
+                f"- [Medium] Bare except catches SystemExit\n"
+                f"  Fix: `except:` -> `except Exception:`\n\n"
+                f"Example bad review (DO NOT do this):\n"
+                f"- Variable naming could be better (this is style, not a bug)\n"
+                f"- Add more comments (not actionable)\n\n"
+                f"{'Context: ' + pr_context[:200] + chr(10) if pr_context else ''}"
+                f"Now review:\n```diff\n{diff[:3000]}\n```"
             ),
         }, "POST")
         response = result.get("response", "")
@@ -585,6 +590,8 @@ async def webhook(request: Request):
         pr = payload.get("pull_request", {})
         repo = payload.get("repository", {}).get("full_name", "")
         pr_number = pr.get("number")
+        pr_title = pr.get("title", "")
+        pr_body = (pr.get("body") or "")[:500]
         installation_id = payload.get("installation", {}).get("id", 0)
 
         # Rate limit check
@@ -630,7 +637,8 @@ async def webhook(request: Request):
         files = parse_diff(diff_text)
         all_issues = []
         for filename, diff in files:
-            issues = review_file(filename, diff, config)
+            pr_ctx = f"PR: {pr_title}" + (f"\n{pr_body}" if pr_body else "")
+            issues = review_file(filename, diff, config, pr_ctx)
             all_issues.extend([(filename, i) for i in issues])
 
         # Post review
