@@ -69,6 +69,15 @@ Developer opens PR -> GitHub webhook -> Redis queue -> Guard reviews
 | E14 | SHA Cache | Skip duplicate reviews on same commit |
 | E15 | Auto-Retry | Failed jobs retried every 5 minutes |
 
+### Competitive Features (GE17-GE20)
+
+| # | Feature | Description |
+|---|---------|-------------|
+| GE17 | AI PR Summary | LLM generates 3-5 bullet changelog of what the PR does |
+| GE18 | Conversational Chat | `@neuronx-guard why?` / `fix this` / `is this safe?` in PR comments |
+| GE19 | Quality Gates | Configurable `max_errors: 0` that blocks merge via Check Run |
+| GE20 | CWE/OWASP Tags | Every security finding tagged `[CWE-89] [OWASP A03:2021]` |
+
 ---
 
 ## PR Commands
@@ -82,6 +91,7 @@ Developer opens PR -> GitHub webhook -> Redis queue -> Guard reviews
 | `/guard leaderboard` | Developer ranking by cleanest code |
 | `/guard report` | Compliance-ready markdown report |
 | `/guard config` | Show current repo configuration |
+| `@neuronx-guard [question]` | Conversational AI chat — ask anything about the PR |
 
 ---
 
