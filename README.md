@@ -3,140 +3,115 @@
 **AI-powered code review for every GitHub Pull Request.**
 
 [![Install](https://img.shields.io/badge/Install-GitHub%20App-orange)](https://github.com/apps/neuronx-guard)
-[![Tests](https://img.shields.io/badge/Tests-17%20passing-green)]()
-[![License](https://img.shields.io/badge/License-MIT-yellow)]()
+[![Live](https://img.shields.io/badge/Live-neuronx.jagatab.uk%2Fguard-blue)](https://neuronx.jagatab.uk/guard)
+![Guard](https://neuronx.jagatab.uk/api/github/badge/sreejagatab/neuronx-platform.svg)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-22,000+ code patterns + LLM analysis + AST checking. Zero configuration. Free.
+19 security patterns. 62 language rules. 14 languages. Multi-model LLM consensus. Dependency CVE scanning. Zero config. Free.
 
-**[Install Now](https://github.com/apps/neuronx-guard)** | **[Landing Page](https://neuronx.jagatab.uk/guard)** | **[Live PR Review](https://github.com/sreejagatab/neuronx-platform/pull/1)**
+**[Install Now](https://github.com/apps/neuronx-guard)** | **[Homepage](https://neuronx.jagatab.uk/guard)** | **[Dashboard](https://neuronx.jagatab.uk/guard/dashboard)** | **[Live PR Review](https://github.com/sreejagatab/ClawdSaaS/pull/8)**
 
 ---
 
 ## How It Works
 
 ```
-Developer opens PR -> GitHub webhook -> NeuronX Guard reviews
-  |-- Pattern matching (22K+ patterns)
-  |-- AST analysis (syntax, complexity)
-  |-- Security scan (secrets, SQL injection)
-  |-- LLM deep review + fix suggestions (Groq/HuggingFace)
-       -> Posts review comment on PR (inline + summary)
+Developer opens PR -> GitHub webhook -> Redis queue -> Guard reviews
+  |-- Security scan (19 rules: secrets, SQL injection, XSS, eval, pickle)
+  |-- Language rules (62 rules across 14 languages)
+  |-- AST complexity analysis
+  |-- Multi-model LLM consensus (2-3 models vote)
+  |-- Cross-file analysis (broken imports, duplicates)
+  |-- Dependency CVE scan (OSV.dev — PyPI, npm, Go, Cargo, Gems, Packagist)
+       -> Inline comments on exact lines + Check Run badge
 ```
 
-1. **Install** NeuronX Guard on your repo — [one click](https://github.com/apps/neuronx-guard)
+1. **Install** NeuronX Guard on your repos — [one click](https://github.com/apps/neuronx-guard)
 2. **Open** a Pull Request
-3. **Guard reviews** automatically using 4 layers
-4. **See issues** inline on your PR with fix suggestions
+3. **Guard reviews** automatically in seconds (6 review layers)
+4. **See issues** inline on exact lines with consensus scores
 
 ---
 
-## Features
+## 6 Review Layers
 
-| Feature | Description |
-|---------|-------------|
-| **4 Review Layers** | Pattern matching, AST analysis, security scan, LLM review |
-| **Fix Suggestions** | Before/after code using GitHub suggested changes format |
-| **Auto-Fix PRs** | Auto-commit safe fixes (bare excepts, etc.) via `/auto-fix` endpoint |
-| **Custom Rules** | Define your own regex rules in `.neuronx-guard.yml` |
-| **15 Languages** | Python, JavaScript, TypeScript, Go, Rust, Java, Ruby, PHP, and more |
-| **Slack Integration** | Review summaries sent to your Slack channel (Team tier) |
-| **Rate Limiting** | Per-installation daily limits by pricing tier |
-| **Dashboard** | Review history, repo stats, badges per repo |
-| **CLI Tool** | Review code locally before pushing |
-| **Background Queue** | Webhook returns instantly, review runs in background |
-| **Deduplication** | Marks updated reviews, avoids duplicate comments |
-| **17 Unit Tests** | Config, diff parsing, review engine, formatting, rate limiting |
+| Layer | What It Catches |
+|-------|----------------|
+| **Security Scan** | Hardcoded secrets (OpenAI `sk-`, GitHub `ghp_`), SQL injection, eval/exec, pickle, timing attacks, command injection |
+| **Language Rules** | 62 rules: JS (innerHTML, ==, var), Go (panic, unsafe), Rust (unwrap, transmute), Java, Ruby, PHP, Shell, C/C++, Kotlin, Swift |
+| **LLM Consensus** | 2-3 free LLMs review independently — only reports issues 2+ models agree on. Near-zero false positives |
+| **AST Analysis** | Python cyclomatic complexity, bare `except:` blocks, structural issues |
+| **Cross-File** | Broken imports (function removed but still imported), duplicate definitions across files |
+| **Dependency CVE** | Checks requirements.txt, package.json, go.mod, Cargo.toml against OSV.dev vulnerability database |
 
 ---
 
-## Install
+## Enhancements (E1-E15)
 
-### GitHub App (recommended)
-[**Install NeuronX Guard**](https://github.com/apps/neuronx-guard) — select repositories, done.
+| # | Enhancement | Description |
+|---|------------|-------------|
+| E1 | LLM Consensus | 2-3 models vote, only report agreements |
+| E2 | Dismiss Learning | Auto-suppress issues dismissed 3+ times |
+| E3 | Exact Lines | Inline comments on the exact changed line |
+| E4 | Cross-File | Detect broken imports + duplicate functions |
+| E5 | Language Rules | 62 rules across 14 languages |
+| E6 | CVE Scan | OSV.dev vulnerability check for 6 ecosystems |
+| E7 | PR Quality | Flag empty descriptions, missing test plans |
+| E8 | Suggested Reviewers | Recommend reviewers from git history |
+| E9 | GitHub Actions CI | `POST /api/guard/ci-review` — no webhook needed |
+| E10 | VS Code Extension | Real-time diagnostics on save |
+| E11 | Reaction Feedback | Thumbs up/down trains quality scores |
+| E12 | Redis Queue | Crash-resilient with 3x auto-retry |
+| E13 | httpx Pooling | Connection pooling for GitHub API calls |
+| E14 | SHA Cache | Skip duplicate reviews on same commit |
+| E15 | Auto-Retry | Failed jobs retried every 5 minutes |
 
-### CLI (local review)
-```bash
-git clone https://github.com/sreejagatab/neuronx-guard.git
-cd neuronx-guard
-pip install -r requirements.txt
-python guard_cli.py src/          # Review a directory
-python guard_cli.py --staged      # Review git staged files
-python guard_cli.py api/main.py   # Review a single file
+---
+
+## PR Commands
+
+| Command | Action |
+|---------|--------|
+| `/guard dismiss` | Dismiss review + feed dismiss learning |
+| `/guard re-review` | Trigger fresh review |
+| `/guard explain` | Detailed explanations with OWASP/CWE references |
+| `/guard quality` | Show quality score (0-100, grade A-F) |
+| `/guard leaderboard` | Developer ranking by cleanest code |
+| `/guard report` | Compliance-ready markdown report |
+| `/guard config` | Show current repo configuration |
+
+---
+
+## Integrations
+
+### GitHub App (Recommended)
+Install once, reviews happen on every PR automatically.
+
+```
+https://github.com/apps/neuronx-guard
 ```
 
----
-
-## Configuration
-
-Add `.neuronx-guard.yml` to your repo root (optional — all checks enabled by default):
-
+### GitHub Actions CI
 ```yaml
-enabled: true
-checks:
-  security: true
-  complexity: true
-  bare_except: true
-  patterns: true
-  llm_review: true
-ignore_files:
-  - "*.md"
-  - "tests/*"
-  - "docs/*"
-severity_threshold: warning
-
-# Custom rules (Pro feature)
-custom_rules:
-  - pattern: "TODO|FIXME|HACK"
-    message: "Found TODO comment - resolve before merging"
-    severity: info
-  - pattern: "print\\("
-    message: "Debug print() found - remove before production"
-    severity: warning
+- name: NeuronX Guard Review
+  run: |
+    DIFF=$(git diff origin/main...HEAD)
+    curl -X POST https://neuronx.jagatab.uk/api/guard/ci-review \
+      -H "Content-Type: application/json" \
+      -d "{\"diff\": \"$DIFF\", \"repo\": \"$GITHUB_REPOSITORY\"}"
 ```
 
----
-
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/` | Redirect to landing page |
-| GET | `/health` | Server health + review count |
-| GET | `/stats` | Full analytics (installs, reviews, issues, top repos) |
-| GET | `/pricing` | Pricing tiers (Free/Pro/Team) |
-| GET | `/dashboard-ui` | Interactive dashboard page |
-| GET | `/dashboard/{owner}/{repo}` | Review history for a repo (JSON) |
-| GET | `/badge/{owner}/{repo}.svg` | Shields.io badge for repo |
-| GET | `/rate-limit/{id}` | Check rate limit for installation |
-| GET | `/billing/status` | Stripe billing status |
-| GET | `/checkout/pro` | Stripe checkout for Pro tier |
-| GET | `/checkout/team` | Stripe checkout for Team tier |
-| POST | `/webhook` | GitHub webhook (main endpoint) |
-| POST | `/backup` | Create DB backup |
-| POST | `/auto-fix/{owner}/{repo}/{pr}` | Auto-commit fixes for a PR |
-| POST | `/stripe/webhook` | Stripe payment webhook |
-
----
-
-## Architecture
-
+### API (Authenticated)
+```bash
+curl -X POST https://neuronx.jagatab.uk/api/guard/review \
+  -H "X-Guard-Key: nxg_your_key" \
+  -d '{"diff": "...", "repo": "owner/repo"}'
 ```
-GitHub PR Event
-       |
-  POST /webhook (returns 200 immediately)
-       |
-       v (background thread)
-  _process_pr_review()
-       |
-  +----+--------+------------+--------------+
-  |    |        |            |              |
-  v    v        v            v              v
-Bare  Security  Complexity   Custom       LLM Review
-Except Scan     Check (AST)  Rules        (NeuronX API)
-  |    |        |            |              |
-  +----+--------+------------+--------------+
-       |
-  Dedup check -> Format comment -> Post review -> Record DB -> Slack
+
+### VS Code Extension
+```bash
+cd vscode-extension && npm install && npx vsce package
+code --install-extension neuronx-guard-1.0.0.vsix
 ```
 
 ---
@@ -145,30 +120,78 @@ Except Scan     Check (AST)  Rules        (NeuronX API)
 
 | Tier | Price | Reviews/Day | Features |
 |------|-------|------------|----------|
-| **Free** | $0 | 20 | All 4 layers, unlimited repos, fix suggestions |
-| **Pro** | $10/mo | 200 | Priority review, custom rules, email notifications, analytics |
-| **Team** | $30/mo | 1,000 | Team dashboard, Slack integration, priority support |
+| **Free** | £0 | 20 | All 6 layers, unlimited repos, all PR commands |
+| **Pro** | £10/mo | 200 | Custom rules, priority queue, compliance reports, analytics |
+| **Team** | £30/mo | 1,000 | Team dashboard, Slack integration, org-wide analytics, priority support |
+
+Payment powered by Stripe. Cancel anytime.
 
 ---
 
 ## Badge
 
-Add a NeuronX Guard badge to your README:
+Add a quality badge to your README:
 
 ```markdown
-![NeuronX Guard](https://your-guard-server/badge/owner/repo.svg)
+![Guard](https://neuronx.jagatab.uk/api/github/badge/OWNER/REPO.svg)
 ```
 
-Colors: green (no issues) | yellow | orange | red (many issues)
+Shows live quality grade (A-F) with score. Updates on every review.
 
 ---
 
-## Dashboard
+## API Endpoints
 
-- **Repo dashboard**: `/dashboard/{owner}/{repo}` — review history per repo
-- **Analytics**: `/stats` — top repos, issue types, daily counts
-- **Interactive UI**: `/dashboard-ui` — full dashboard page
-- **Rate limits**: `/rate-limit/{installation_id}` — check usage
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/github/badge/{owner}/{repo}.svg` | Quality badge (SVG) |
+| `GET /api/github/quality/{owner}/{repo}` | Quality score + trend |
+| `GET /api/github/leaderboard/{owner}/{repo}` | Developer leaderboard |
+| `GET /api/github/analytics/{owner}/{repo}` | Review history + averages |
+| `GET /api/github/report/{owner}/{repo}/{pr}` | Compliance report |
+| `POST /api/guard/ci-review` | CI review (public) |
+| `POST /api/guard/review` | Authenticated review (API key) |
+| `GET /api/guard/queue` | Queue status |
+| `GET /api/github/status` | Guard integration status |
+
+---
+
+## Test Results
+
+Tested on [ClawdSaaS PR #8](https://github.com/sreejagatab/ClawdSaaS/pull/8): **14 files, 10 languages, 84 issues found, 0 false positives**
+
+| Check | Issues | Details |
+|-------|--------|---------|
+| Security patterns | 17 | Hardcoded creds, SQL injection, eval/exec, pickle, timing |
+| Language rules | 37 | All 10 languages triggered (C, Go, Java, JS, Kotlin, PHP, Ruby, Rust, Shell, Swift) |
+| Dependency CVEs | 28 | All 10 packages have known vulnerabilities |
+| Cross-file | 1 | Duplicate function detected across files |
+| PR quality | 2 | Missing test plan, no linked issue |
+| AST complexity | 1 | Function with complexity=7 flagged |
+
+---
+
+## Architecture
+
+```
+GitHub PR Event
+     |
+  Webhook -> Redis Queue -> Queue Worker
+                               |
+                +--------------+--------------+
+                |              |              |
+          Security Scan   Lang Rules    LLM Consensus
+          AST Analysis    Cross-File    Dep CVE Scan
+          PR Quality      Dismiss       Line Mapping
+                |              |              |
+                +--------------+--------------+
+                               |
+                      Post to GitHub
+                      Record in DB
+                      Cache SHA
+```
+
+**Stack:** FastAPI, PostgreSQL (SQLite fallback), Redis, httpx, 19 free LLM providers
 
 ---
 
@@ -185,42 +208,6 @@ python guard_server.py
 
 Windows: double-click `START_GUARD.bat`
 
-### Environment Variables
-```
-GITHUB_APP_ID=your_app_id
-GITHUB_APP_PRIVATE_KEY_PATH=neuronx-guard.pem
-GITHUB_WEBHOOK_SECRET=your_secret
-NEURONX_API_URL=http://localhost:8000
-STRIPE_SECRET_KEY=sk_live_xxx (optional)
-SENTRY_DSN=https://xxx (optional)
-```
-
----
-
-## Test Results
-
-Tested on [PR #1](https://github.com/sreejagatab/neuronx-platform/pull/1): **6 files, 21 issues found**
-
-| File | Issues | Findings |
-|------|--------|----------|
-| test_guard_pr/example_code.py | 6 | Hardcoded password, API key, bare except, SQL injection |
-| api/multi_source_collector.py | 3 | SQL injection, broad exception |
-| engine/folder_engine.py | 3 | Insecure object reference |
-| meta_evolution/*.py | 6 | Attribute errors, data loss |
-| self_modification/*.py | 3 | Information disclosure |
-
-All 4 layers fired. [View the live review](https://github.com/sreejagatab/neuronx-platform/pull/1#issuecomment-4170062869).
-
----
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Run tests (`python -m pytest tests/ -v`)
-4. Commit changes
-5. Open a Pull Request
-
 ---
 
 ## License
@@ -229,4 +216,4 @@ MIT License
 
 ---
 
-**Built by [SreeJagatab](https://jagatab.uk)** | **[NeuronX Platform](https://neuronx.jagatab.uk)** | **sreejagatab@yahoo.com**
+**Built by [SreeJagatab](https://jagatab.uk)** | **[NeuronX Platform](https://neuronx.jagatab.uk)** | **[LinkedIn](https://www.linkedin.com/in/sreejagatab/)** | **[X](https://x.com/SavingBargain)**
