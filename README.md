@@ -7,7 +7,7 @@
 ![Guard](https://neuronx.jagatab.uk/api/github/badge/sreejagatab/neuronx-platform.svg)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-19 security patterns. 62 language rules. 14 languages. Multi-model LLM consensus. Dependency CVE scanning. Zero config. Free.
+9 review layers. 23K pattern database. Auto-fix suggestions. Knowledge Graph-powered LLM consensus. 14 languages. Zero config. Free.
 
 **[Install Now](https://github.com/apps/neuronx-guard)** | **[Homepage](https://neuronx.jagatab.uk/guard)** | **[Dashboard](https://neuronx.jagatab.uk/guard/dashboard)** | **[Live PR Review](https://github.com/sreejagatab/ClawdSaaS/pull/8)**
 
@@ -28,21 +28,24 @@ Developer opens PR -> GitHub webhook -> Redis queue -> Guard reviews
 
 1. **Install** NeuronX Guard on your repos — [one click](https://github.com/apps/neuronx-guard)
 2. **Open** a Pull Request
-3. **Guard reviews** automatically in seconds (6 review layers)
-4. **See issues** inline on exact lines with consensus scores
+3. **Guard reviews** automatically in seconds (9 review layers)
+4. **See issues** inline on exact lines with fix suggestions
 
 ---
 
-## 6 Review Layers
+## 9 Review Layers
 
-| Layer | What It Catches |
-|-------|----------------|
-| **Security Scan** | Hardcoded secrets (OpenAI `sk-`, GitHub `ghp_`), SQL injection, eval/exec, pickle, timing attacks, command injection |
-| **Language Rules** | 62 rules: JS (innerHTML, ==, var), Go (panic, unsafe), Rust (unwrap, transmute), Java, Ruby, PHP, Shell, C/C++, Kotlin, Swift |
-| **LLM Consensus** | 2-3 free LLMs review independently — only reports issues 2+ models agree on. Near-zero false positives |
+| Layer | What It Does |
+|-------|-------------|
+| **Security Scan** | 19 rules: hardcoded secrets, SQL injection, eval/exec, pickle, timing attacks, command injection |
+| **Language Rules** | 62 rules across 14 languages: JS, Go, Rust, Java, Ruby, PHP, Shell, C/C++, Kotlin, Swift |
+| **LLM Consensus** | 2-3 LLMs vote independently. Knowledge Graph enriches prompts with codebase context |
 | **AST Analysis** | Python cyclomatic complexity, bare `except:` blocks, structural issues |
-| **Cross-File** | Broken imports (function removed but still imported), duplicate definitions across files |
-| **Dependency CVE** | Checks requirements.txt, package.json, go.mod, Cargo.toml against OSV.dev vulnerability database |
+| **Cross-File** | Broken imports, duplicate definitions across files |
+| **Dependency CVE** | Checks requirements.txt, package.json, go.mod, Cargo.toml against OSV.dev |
+| **Pattern Database** | 23K+ learned patterns + 189K FAISS vectors — instant matching against known vulnerabilities |
+| **Auto-Fix Suggestions** | 40+ deterministic fixes, pattern-based references, LLM-generated repairs (56% coverage) |
+| **Knowledge Graph** | 3,900 nodes, 38K edges — enriches LLM reviews with related concepts and dependencies |
 
 ---
 
@@ -158,7 +161,7 @@ Shows live quality grade (A-F) with score. Updates on every review.
 
 ## Test Results
 
-Tested on [ClawdSaaS PR #8](https://github.com/sreejagatab/ClawdSaaS/pull/8): **14 files, 10 languages, 84 issues found, 0 false positives**
+Tested on [ClawdSaaS PR #8](https://github.com/sreejagatab/ClawdSaaS/pull/8): **14 files, 10 languages, 85 issues found, 48 with fix suggestions, 0 false positives**
 
 | Check | Issues | Details |
 |-------|--------|---------|
