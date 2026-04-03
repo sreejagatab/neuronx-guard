@@ -5,9 +5,10 @@
 [![Install](https://img.shields.io/badge/Install-GitHub%20App-orange)](https://github.com/apps/neuronx-guard)
 [![Live](https://img.shields.io/badge/Live-neuronx.jagatab.uk%2Fguard-blue)](https://neuronx.jagatab.uk/guard)
 ![Guard](https://neuronx.jagatab.uk/api/github/badge/sreejagatab/neuronx-platform.svg)
+![Security](https://neuronx.jagatab.uk/api/github/security-badge/sreejagatab/neuronx-platform.svg)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-9 review layers. 23K pattern database. Auto-fix suggestions. Knowledge Graph-powered LLM consensus. 14 languages. Zero config. Free.
+9 review layers. 23K pattern database. One-click auto-fixes. CWE/OWASP tags. Quality gates. Security badge. Self-learning engine. 14 languages. Free.
 
 **[Install Now](https://github.com/apps/neuronx-guard)** | **[Homepage](https://neuronx.jagatab.uk/guard)** | **[Dashboard](https://neuronx.jagatab.uk/guard/dashboard)** | **[Live PR Review](https://github.com/sreejagatab/ClawdSaaS/pull/8)**
 
@@ -44,8 +45,9 @@ Developer opens PR -> GitHub webhook -> Redis queue -> Guard reviews
 | **Cross-File** | Broken imports, duplicate definitions across files |
 | **Dependency CVE** | Checks requirements.txt, package.json, go.mod, Cargo.toml against OSV.dev |
 | **Pattern Database** | 23K+ learned patterns + 189K FAISS vectors — instant matching against known vulnerabilities |
-| **Auto-Fix Suggestions** | 40+ deterministic fixes, pattern-based references, LLM-generated repairs (56% coverage) |
-| **Knowledge Graph** | 3,900 nodes, 38K edges — enriches LLM reviews with related concepts and dependencies |
+| **Auto-Fix Suggestions** | One-click GitHub suggestion blocks, 40+ deterministic fixes, pattern refs, LLM repairs (56% coverage) |
+| **Knowledge Graph** | 4,900 nodes, 45K edges — enriches LLM reviews with codebase context |
+| **Duplication Detection** | Token-based clone detection across files, flags 6+ lines at 80%+ similarity |
 
 ---
 
@@ -92,6 +94,28 @@ Developer opens PR -> GitHub webhook -> Redis queue -> Guard reviews
 | `/guard report` | Compliance-ready markdown report |
 | `/guard config` | Show current repo configuration |
 | `@neuronx-guard [question]` | Conversational AI chat — ask anything about the PR |
+
+---
+
+## Auto-Fix System
+
+| Mode | How It Works | Risk |
+|------|-------------|------|
+| **suggest** (default) | Fixes rendered as GitHub suggestion blocks — one click to apply | Zero |
+| **commit** (opt-in) | Guard creates a fix branch + Fix PR targeting your branch | Low |
+| **auto** (enterprise) | Deterministic fixes committed directly (confidence >= 0.95) | Medium |
+
+**Rollback:** `/guard rollback` lists all applied fixes. `/guard rollback <id>` reverts a specific fix.
+
+**Learning:** Every applied fix feeds back into the 23K pattern database. Guard gets smarter with every review.
+
+---
+
+## Security
+
+- **CWE/OWASP tags** on every security finding: `[CWE-89] [OWASP A03:2021]`
+- **Security score badge**: `![Security](https://neuronx.jagatab.uk/api/github/security-badge/OWNER/REPO.svg)`
+- **Quality gates**: block merges if `max_errors: 0` exceeded in `.neuronx-guard.yml`
 
 ---
 
