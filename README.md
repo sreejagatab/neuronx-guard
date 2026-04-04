@@ -93,6 +93,7 @@ Developer opens PR -> GitHub webhook -> Redis queue -> Guard reviews
 | `/guard leaderboard` | Developer ranking by cleanest code |
 | `/guard report` | Compliance-ready markdown report |
 | `/guard config` | Show current repo configuration |
+| `/guard rollback` | List applied fixes, `/guard rollback <id>` to revert |
 | `@neuronx-guard [question]` | Conversational AI chat — ask anything about the PR |
 
 ---
@@ -116,6 +117,8 @@ Developer opens PR -> GitHub webhook -> Redis queue -> Guard reviews
 - **CWE/OWASP tags** on every security finding: `[CWE-89] [OWASP A03:2021]`
 - **Security score badge**: `![Security](https://neuronx.jagatab.uk/api/github/security-badge/OWNER/REPO.svg)`
 - **Quality gates**: block merges if `max_errors: 0` exceeded in `.neuronx-guard.yml`
+- **Priority queue**: Pro/Team reviews processed first
+- **Slack/Discord**: review summaries posted to team channels via webhook
 
 ---
 
